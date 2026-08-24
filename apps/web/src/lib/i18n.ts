@@ -34,6 +34,8 @@ export interface Strings {
   micBlockedBody: string;
   unsupportedTitle: string;
   unsupportedBody: string;
+  micErrorTitle: (code: string) => string;
+  micErrorBody: (code: string) => string;
   offlineTitle: string;
   offlineBody: string;
   thinking: string;
@@ -67,6 +69,12 @@ const EN: Strings = {
   micBlockedBody: 'Allow the microphone in your browser settings, or type commands below.',
   unsupportedTitle: 'This browser does not support voice input.',
   unsupportedBody: 'Chrome, Edge and Android browsers do. You can type commands below instead.',
+  micErrorTitle: (code) =>
+    code === 'no-speech' ? "Didn't hear anything." : `Voice recognition stopped (${code}).`,
+  micErrorBody: (code) =>
+    code === 'no-speech'
+      ? 'Check the right microphone is selected and unmuted in your system sound settings, then tap the mic to try again.'
+      : 'This is usually your network or a browser extension interfering with the microphone. Tap the mic to try again, or type commands below.',
   offlineTitle: 'Cannot reach the server.',
   offlineBody: 'Check your connection. Your list is safe and will reload when you are back.',
   thinking: 'working it out',

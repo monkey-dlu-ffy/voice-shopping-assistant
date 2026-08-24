@@ -184,14 +184,26 @@ export function useSpeech({ language, onFinal, continuous }: UseSpeechOptions): 
     };
 
     recognition.onerror = (event) => {
-      if (event.error === 'no-speech' || event.error === 'aborted') return;
+      if (event.error === 'aborted') return; // we caused this ourselves (stop/toggle)
+      if (event.error === 'no-speech') {
+        // A pause between commands in hands-free mode is normal and should not
+        // interrupt with a banner. In single-shot mode, hitting this instead
+        // of a final result is the most likely explanation for "I tapped the
+        // mic and nothing happened" - the browser never detected any audio at
+        // all - so it is worth surfacing there.
+        if (!continuousRef.current) {
+          setStatus('error');
+          setErrorMessage('no-speech');
+        }
+        return;
+      }
       if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
         wantsToListenRef.current = false;
         setStatus('denied');
         return;
       }
       setStatus('error');
-      setErrorMessage(event.error === 'network' ? 'network' : event.error);
+      setErrorMessage(event.error);
     };
 
     recognition.onend = () => {

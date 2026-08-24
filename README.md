@@ -7,6 +7,18 @@ A voice-driven shopping list that understands how people actually talk — in En
 
 ---
 
+## How it works
+
+Speech becomes text via the browser's Web Speech API. A deterministic rule parser — shared code that runs identically in the browser and the server — tries to turn that text into a structured `Intent`: an action (add, remove, search, ...), the items involved, quantities, units and filters. It scores its own confidence as it goes.
+
+If confidence clears a threshold, that's the answer: sub-millisecond, free, no network at all. If not, the utterance is checked against a cache, then sent to Gemini Flash, constrained to the same JSON shape via a response schema and re-validated with Zod on arrival. Either path produces an identical `Intent`, so the executor applying it to the list has no idea — and no need to know — which one answered.
+
+The executor mutates a MongoDB-backed list (or in-memory storage, with no database configured) and records completed purchases, which feed a suggestion engine: replenishment fitted from real inter-purchase intervals, seasonal produce, co-purchase pairs and deals, merged into one ranked list where every entry states its own reasoning.
+
+Every external dependency — database, LLM key, microphone — is optional, and its absence is reported honestly at `/api/health` instead of hidden.
+
+---
+
 ## See it work in 30 seconds
 
 1. Open the app in **Chrome, Edge, or an Android browser** (see [Browser support](#browser-support)).

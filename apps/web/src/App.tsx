@@ -286,6 +286,12 @@ export default function App() {
         {speech.status === 'unsupported' ? (
           <Banner title={strings.unsupportedTitle} body={strings.unsupportedBody} />
         ) : null}
+        {speech.status === 'error' ? (
+          <Banner
+            title={strings.micErrorTitle(speech.errorMessage ?? 'unknown')}
+            body={strings.micErrorBody(speech.errorMessage ?? 'unknown')}
+          />
+        ) : null}
 
         <div className="col-span">
           <TranscriptCard
