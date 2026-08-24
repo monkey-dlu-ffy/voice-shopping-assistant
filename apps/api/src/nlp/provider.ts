@@ -152,9 +152,17 @@ const PROMPT_RULES = [
   '  user\'s original wording in `raw`. The list is stored in English so that',
   '  categorisation and history work across languages.',
   `- Categories available downstream: ${CATEGORIES.join(', ')}.`,
-  '- When the user names a meal or occasion rather than products ("something for tacos"),',
-  '  expand it into the specific grocery items a shopper would buy.',
-  '- Only populate `filters` for search commands.',
+  '- "search" is ONLY for browsing/finding items that already exist by name, brand or',
+  '  price ("find toothpaste under $5", "search for gluten free bread"). It is never the',
+  '  right choice for a meal, occasion or vague need - that is always "add".',
+  '- When the user names a meal or occasion rather than specific products ("something for',
+  '  tacos", "sort out dinner", "we need breakfast stuff"), the intent is "add", and you',
+  '  must expand it into 3-6 concrete grocery items a shopper would actually buy. Never',
+  '  return an empty items list for a request like this, and never invent a single vague',
+  '  item name such as "dinner" or "taco ingredients" - name the real products.',
+  '  Example: "grab whatever we need for tacos" -> intent "add", items: tortillas, ground',
+  '  beef, cheddar cheese, lettuce, tomatoes, salsa.',
+  '- Only populate `filters` for the "search" intent. Leave it empty for everything else.',
 ].join('\n');
 
 const SYSTEM_PROMPT = `${PROMPT_RULES}\n\nAlways respond by calling the ${TOOL_NAME} tool.`;
