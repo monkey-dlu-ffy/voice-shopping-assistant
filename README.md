@@ -3,7 +3,7 @@
 A voice-driven shopping list that understands how people actually talk — in English, Hindi and Spanish — and explains every suggestion it makes.
 
 **Live app:** _add your deployed URL here_
-**Stack:** TypeScript · React · Express · MongoDB · Claude Haiku 4.5 · Docker
+**Stack:** TypeScript · React · Express · MongoDB · Gemini Flash · Docker
 
 ---
 
@@ -64,8 +64,8 @@ Everything hangs off one abstraction: **the `Intent` contract**. Speech becomes 
                     │                     └────────┬─────────┘
                     │                        miss  │
                     │                     ┌────────▼─────────┐
-                    │                     │ Claude Haiku 4.5 │
-                    │                     │ strict tool use  │
+                    │                     │  Gemini Flash    │
+                    │                     │ structured output│
                     │                     └────────┬─────────┘
                     └──────────────┬───────────────┘
                                    ▼
@@ -103,7 +103,7 @@ The rule parser scores its own confidence. Below `CONFIDENCE_THRESHOLD` it refus
 
 `remove` is confident even for an item the catalogue has never heard of, because the executor validates against the user's own list. `add` is not, because an unrecognised name would go straight onto the list. Confidence answers *"did I understand the command"*, not *"do I stock this product"*.
 
-When the model is consulted it is via **strict tool use**, so the JSON is schema-guaranteed rather than hope-parsed, and the result is validated again with Zod on arrival.
+When the model is consulted, the request is constrained to a JSON schema (Gemini's `responseSchema`, or Anthropic's strict tool use if you configure Claude instead — see [LLM provider](#llm-provider) below), so the output is schema-guaranteed rather than hope-parsed, and it is validated again with Zod on arrival.
 
 ### The suggestion engine
 
@@ -130,18 +130,21 @@ docker compose up
 
 Then open <http://localhost:8080>. That is the whole setup — no Node version to match, no database to install, no API key.
 
-To enable the LLM fallback for unusual phrasings, add a `.env` file next to `docker-compose.yml`:
+### LLM provider
 
-```bash
-ANTHROPIC_API_KEY=sk-ant-...
-```
+The LLM fallback needs a key from **one** of two providers, tried in this order. Add whichever you have to a `.env` file next to `docker-compose.yml` (see `.env.example` for the full list of variables).
 
-Everything else works without it. `/api/health` tells you which mode you are in:
+| Provider | Cost | Getting a key |
+|---|---|---|
+| **Gemini Flash** (preferred) | Genuinely free — no billing account required | Sign in at [aistudio.google.com](https://aistudio.google.com) with a Google account and generate a key. This is a *different* signup path from Google Cloud/Vertex, and does not ask for a card on the free tier. Set `GEMINI_API_KEY`. |
+| Claude Haiku 4.5 | Fractions of a cent per fallback call, requires Anthropic billing | Set `ANTHROPIC_API_KEY` instead. Useful if you already have Claude billing configured — the two providers sit behind the same `IntentProvider` interface, so it's a config change, not a code change. |
+
+Neither is required. Without one, the rule parser still handles every phrasing it recognises, and an unusual phrasing gets an honest "I didn't catch that" instead of an error. `/api/health` reports exactly which mode you're running in:
 
 ```json
 {
   "storage": { "kind": "mongodb", "durable": true },
-  "nlp": { "fallback": "claude:claude-haiku-4-5", "cache": { "hits": 3, "llmCalls": 1 } }
+  "nlp": { "fallback": "gemini:gemini-2.5-flash", "cache": { "hits": 3, "llmCalls": 1 } }
 }
 ```
 
@@ -153,7 +156,7 @@ npm run dev          # API on :8080, Vite on :5173 with a proxy
 ```
 
 ```bash
-npm test             # 176 tests
+npm test             # 191 tests
 npm run typecheck
 npm run build
 ```
@@ -162,17 +165,23 @@ No database is needed for development — with `MONGODB_URI` unset the app uses 
 
 ### Deploying
 
-The image built by the `Dockerfile` is the single deployable artefact: the same one `docker compose` runs locally.
+The image built by the `Dockerfile` is the single deployable artefact — the same one `docker compose` runs locally deploys anywhere that can run a Dockerfile.
+
+**Cloud Run** (needs a GCP billing account on file, even though this workload stays inside the free tier):
 
 ```bash
 gcloud run deploy voice-list \
   --source . \
   --region europe-west1 \
   --allow-unauthenticated \
-  --set-env-vars "MONGODB_URI=<your MongoDB Atlas URI>,ANTHROPIC_API_KEY=<key>"
+  --set-env-vars "MONGODB_URI=<your MongoDB Atlas URI>,GEMINI_API_KEY=<key>"
 ```
 
-Cloud Run supplies HTTPS, which the Web Speech API requires, and scales to zero. Cloud Run instances are stateless, so production needs a managed database — a MongoDB Atlas M0 cluster is free and sufficient. The Mongo container in `docker-compose.yml` is for local use only.
+Cloud Run supplies HTTPS, which the Web Speech API requires, and scales to zero.
+
+**Render**, if you'd rather not attach a card at all: connect the GitHub repo at [render.com](https://render.com), create a **Web Service**, let it detect the `Dockerfile`, and add the same environment variables in its dashboard. No billing account needed on Render's free tier. Trade-off: the free instance sleeps after 15 minutes idle, so a cold visit waits several seconds for it to wake.
+
+Either way, Cloud Run and Render instances are both stateless, so production needs a managed database — a MongoDB Atlas M0 cluster is free and sufficient. The Mongo container in `docker-compose.yml` is for local use only.
 
 ---
 
@@ -202,13 +211,14 @@ Cloud Run supplies HTTPS, which the Web Speech API requires, and scales to zero.
 ## Testing
 
 ```
-176 tests across 4 files
+191 tests across 5 files
 ```
 
 - **`packages/shared/test/nlp.spec.ts`** — 83 utterances across three languages, each asserting the exact `Intent`. This is the evidence behind "understands varied phrasing"; the rest of the claim is just a claim. It includes an *escalation corpus*: phrasings the rules must **refuse**, so the fallback boundary cannot silently drift.
 - **`packages/shared/test/catalog.spec.ts`** — resolution, mishearings, cross-language lookup, plus data integrity (no dangling substitutes, no duplicate keys, valid months).
 - **`apps/api/test/suggestions.spec.ts`** — the replenishment model recovers the interval it was generated from; cold start still produces something.
 - **`apps/api/test/api.spec.ts`** — full request/response cycle against a memory repository and a mock provider. No database, no network, no API key.
+- **`apps/api/test/provider.spec.ts`** — error classification for both LLM providers (retryable vs. permanent, by real SDK error class), so a rate limit is never mistaken for a dead API key.
 
 Two real bugs were caught here rather than in a demo: a low-confidence parse being executed anyway (adding a literal item called "whatever tacos"), and `remove caviar` being rejected as incomprehensible when it was perfectly understood.
 
@@ -220,7 +230,7 @@ Degradation is designed, not accidental.
 
 | Situation | Behaviour |
 |---|---|
-| No `ANTHROPIC_API_KEY` | Rules-only. Unrecognised phrasings ask you to rephrase. Reported at `/api/health`. |
+| No `GEMINI_API_KEY` or `ANTHROPIC_API_KEY` | Rules-only. Unrecognised phrasings ask you to rephrase. Reported at `/api/health`. |
 | LLM rate-limited, down, or unreachable | Falls back to the rule result, logged with retryable/permanent classification. |
 | No `MONGODB_URI`, or Mongo unreachable | In-process storage, loud warning, `durable: false` at `/api/health`. |
 | Microphone permission denied | Banner explaining how to re-enable, text input stays available. |
@@ -247,7 +257,7 @@ Voice input needs the Web Speech API and an HTTPS origin (or `localhost`).
 
 **Rules first, model second.** An LLM on every utterance would cost money per command, add ~400 ms of latency to "add milk", and break entirely offline. Rules-only would be brittle on phrasing the author did not anticipate. The hybrid gets the latency and cost profile of the former with the flexibility of the latter, and the cache means an unusual phrasing is only ever paid for once.
 
-**One `Intent` contract.** The executor has no idea whether an intent came from a regex or from Claude. That is what makes the fallback swappable and the whole pipeline testable without a network.
+**One `Intent` contract.** The executor has no idea whether an intent came from the rule engine, Gemini or Claude. That is what makes the fallback swappable — Gemini and Claude are two interchangeable implementations of the same `IntentProvider` interface — and the whole pipeline testable without a network.
 
 **English canonical keys.** Whatever language you speak, items are stored against normalised English names. Categorisation, pricing, purchase history and recommendations then work identically across languages instead of needing per-language duplicates, and the UI renders labels back in your language.
 

@@ -31,7 +31,7 @@ function ParseBadge({ intent }: { intent: Intent }) {
       ? 'Parsed on-device by the rule engine - no network, no cost'
       : intent.source === 'cache'
         ? 'Served from the parse cache - this phrasing was resolved before'
-        : 'Parsed by Claude Haiku because the rules were not confident';
+        : 'Parsed by a language model because the rules were not confident';
 
   return (
     <span className={`badge badge-${intent.source}`} title={title}>

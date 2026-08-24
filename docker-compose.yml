@@ -2,8 +2,8 @@
 #
 # `docker compose up` is the whole setup - no Node version to match, no database
 # to install, no API key required. The app starts in rules-only mode and says so
-# at /api/health; add ANTHROPIC_API_KEY to a .env file to enable the LLM
-# fallback for unusual phrasings.
+# at /api/health; add GEMINI_API_KEY to a .env file to enable the LLM fallback
+# for unusual phrasings (genuinely free - see .env.example for where to get one).
 
 services:
   app:
@@ -14,7 +14,10 @@ services:
       PORT: 8080
       NODE_ENV: production
       MONGODB_URI: mongodb://mongo:27017/vsa
-      # Optional. Without it the rule parser handles everything it recognises.
+      # Both optional. Without either, the rule parser handles everything it
+      # recognises. If both are set, Gemini is used - see .env.example.
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.5-flash}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-haiku-4-5}
     depends_on:

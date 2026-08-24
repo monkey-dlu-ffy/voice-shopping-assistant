@@ -348,7 +348,7 @@ export default function App() {
 
           <p className="footnote">
             Commands are parsed on-device first. Only phrasings the rules cannot resolve are
-            sent to Claude, and each one is cached so it is never paid for twice.
+            sent to a language model, and each one is cached so it is never paid for twice.
           </p>
         </div>
       </main>

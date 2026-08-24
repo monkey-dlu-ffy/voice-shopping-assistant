@@ -1,4 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
+import { GoogleGenAI, Type as GeminiType, ApiError as GeminiApiError } from '@google/genai';
 import { z } from 'zod';
 import { CATEGORIES, INTENT_KINDS, type Intent } from '@vsa/shared';
 import { config } from '../config.js';
@@ -7,9 +8,12 @@ import { config } from '../config.js';
  * The LLM half of the hybrid parser.
  *
  * Only reached when the rule parser is not confident, so the vast majority of
- * commands never touch this path. Three implementations exist behind one
- * interface: Claude for production, a mock for tests, and a null object for when
- * no API key is configured - which is what lets the app run fully offline.
+ * commands never touch this path. Four implementations exist behind one
+ * interface: Gemini and Claude for production (Gemini preferred - it is the
+ * genuinely free option, no billing account required), a mock for tests, and a
+ * null object for when neither key is configured - which is what lets the app
+ * run fully offline. createIntentProvider() at the bottom of this file is the
+ * only place that chooses between them.
  */
 export interface IntentProvider {
   readonly name: string;
@@ -44,6 +48,18 @@ export interface ParsedIntentPayload {
  * This is defence in depth: a schema change, a model swap or a partial response
  * fails here as a clean rejection rather than as a corrupt shopping list.
  */
+/** `null` -> `undefined` so a model that sends null for an unset optional field still validates. */
+const optionalNumber = z
+  .number()
+  .nullable()
+  .optional()
+  .transform((v) => v ?? undefined);
+const optionalString = z
+  .string()
+  .nullable()
+  .optional()
+  .transform((v) => v ?? undefined);
+
 const payloadSchema = z.object({
   intent: z.enum(INTENT_KINDS),
   items: z
@@ -60,9 +76,9 @@ const payloadSchema = z.object({
     .default([]),
   filters: z
     .object({
-      maxPrice: z.number().optional(),
-      minPrice: z.number().optional(),
-      brand: z.string().optional(),
+      maxPrice: optionalNumber,
+      minPrice: optionalNumber,
+      brand: optionalString,
       attributes: z.array(z.string()).optional(),
     })
     .default({}),
@@ -125,7 +141,8 @@ const toolInputSchema = {
   additionalProperties: false,
 };
 
-const SYSTEM_PROMPT = [
+/** The instructions both providers share; each appends its own closing line. */
+const PROMPT_RULES = [
   'You convert a single spoken shopping-list command into structured data.',
   '',
   'Rules:',
@@ -138,9 +155,75 @@ const SYSTEM_PROMPT = [
   '- When the user names a meal or occasion rather than products ("something for tacos"),',
   '  expand it into the specific grocery items a shopper would buy.',
   '- Only populate `filters` for search commands.',
-  '',
-  `Always respond by calling the ${TOOL_NAME} tool.`,
 ].join('\n');
+
+const SYSTEM_PROMPT = `${PROMPT_RULES}\n\nAlways respond by calling the ${TOOL_NAME} tool.`;
+
+/**
+ * The same schema, expressed in Gemini's dialect.
+ *
+ * Gemini's structured-output schema is a restricted OpenAPI subset: types come
+ * from the `Type` enum rather than JSON Schema strings, and "nullable" is its
+ * own boolean rather than a `type: [x, "null"]` union - JSON Schema unions are
+ * not supported here, so each nullable field keeps one `type` and adds
+ * `nullable: true` alongside it.
+ */
+const geminiResponseSchema = {
+  type: GeminiType.OBJECT,
+  properties: {
+    intent: {
+      type: GeminiType.STRING,
+      enum: [...INTENT_KINDS],
+      description: 'What the user wants to do.',
+    },
+    items: {
+      type: GeminiType.ARRAY,
+      description: 'Items the command refers to. Empty for list-level commands.',
+      items: {
+        type: GeminiType.OBJECT,
+        properties: {
+          raw: { type: GeminiType.STRING, description: 'The item exactly as the user said it.' },
+          canonical: {
+            type: GeminiType.STRING,
+            description:
+              'The item normalised to a lowercase singular-or-plural English grocery name, ' +
+              'e.g. "milk", "chicken breast", "toilet paper". Translate from the spoken language.',
+          },
+          quantity: {
+            type: GeminiType.NUMBER,
+            nullable: true,
+            description: 'Count, or null if unstated.',
+          },
+          unit: {
+            type: GeminiType.STRING,
+            nullable: true,
+            description: 'Unit such as bottle, kg, g, litre, dozen, pack. Null if unstated.',
+          },
+          attributes: {
+            type: GeminiType.ARRAY,
+            items: { type: GeminiType.STRING },
+            description: 'Modifiers such as organic, low-fat, gluten-free.',
+          },
+          brand: { type: GeminiType.STRING, nullable: true, description: 'Brand name, or null.' },
+        },
+        required: ['raw', 'canonical', 'quantity', 'unit', 'attributes', 'brand'],
+      },
+    },
+    filters: {
+      type: GeminiType.OBJECT,
+      description:
+        'Search constraints. Only meaningful for the search intent. Omit any field that ' +
+        'does not apply - do not include it as null.',
+      properties: {
+        maxPrice: { type: GeminiType.NUMBER },
+        minPrice: { type: GeminiType.NUMBER },
+        brand: { type: GeminiType.STRING },
+        attributes: { type: GeminiType.ARRAY, items: { type: GeminiType.STRING } },
+      },
+    },
+  },
+  required: ['intent', 'items', 'filters'],
+};
 
 /** Production provider: Claude via the Anthropic SDK. */
 export class ClaudeIntentProvider implements IntentProvider {
@@ -189,6 +272,60 @@ export class ClaudeIntentProvider implements IntentProvider {
   }
 }
 
+/**
+ * Free-tier provider: Gemini Flash via Google AI Studio.
+ *
+ * The preferred default - no billing account required to get a key, unlike
+ * Anthropic or Google Cloud. `responseSchema` plays the same role Claude's
+ * strict tool use does: the API is constrained to return exactly this shape,
+ * and `payloadSchema.safeParse` below is still the defence-in-depth layer for
+ * a schema change, a model swap, or a model that doesn't fully honour it.
+ */
+export class GeminiIntentProvider implements IntentProvider {
+  readonly name: string;
+  readonly available = true;
+  private readonly client: GoogleGenAI;
+
+  constructor(apiKey: string, private readonly model = config.geminiModel) {
+    this.client = new GoogleGenAI({ apiKey });
+    this.name = `gemini:${model}`;
+  }
+
+  async parse(utterance: string, language: string): Promise<ParsedIntentPayload | null> {
+    const response = await this.client.models.generateContent({
+      model: this.model,
+      contents: [
+        { role: 'user', parts: [{ text: `Spoken language: ${language}\nUtterance: ${utterance}` }] },
+      ],
+      config: {
+        systemInstruction: `${PROMPT_RULES}\n\nRespond with only the JSON object - no other text.`,
+        responseMimeType: 'application/json',
+        responseSchema: geminiResponseSchema,
+        // Deterministic parsing, not creative writing.
+        temperature: 0,
+      },
+    });
+
+    const text = response.text;
+    if (!text) return null;
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(text);
+    } catch (error) {
+      console.warn('[nlp] Gemini response was not valid JSON:', (error as Error).message);
+      return null;
+    }
+
+    const validated = payloadSchema.safeParse(parsed);
+    if (!validated.success) {
+      console.warn('[nlp] model returned an unexpected shape:', validated.error.message);
+      return null;
+    }
+    return validated.data;
+  }
+}
+
 /** Deterministic provider for tests: no network, scripted responses. */
 export class MockIntentProvider implements IntentProvider {
   readonly name = 'mock';
@@ -224,20 +361,31 @@ export class NullIntentProvider implements IntentProvider {
   }
 }
 
+/**
+ * Choose a provider. Gemini first - it needs no billing account to obtain a
+ * key, which is what makes it the honest default for a project meant to run
+ * on a free tier. The Anthropic key stays supported for anyone who does have
+ * Claude billing configured, and both can be set at once without conflict.
+ */
 export function createIntentProvider(): IntentProvider {
-  if (!config.anthropicApiKey) {
-    console.warn(
-      '[nlp] ANTHROPIC_API_KEY is not set - running rules-only. ' +
-        'Unrecognised phrasings will ask the user to rephrase.',
-    );
-    return new NullIntentProvider();
+  if (config.geminiApiKey) {
+    return new GeminiIntentProvider(config.geminiApiKey);
   }
-  return new ClaudeIntentProvider(config.anthropicApiKey);
+  if (config.anthropicApiKey) {
+    return new ClaudeIntentProvider(config.anthropicApiKey);
+  }
+  console.warn(
+    '[nlp] Neither GEMINI_API_KEY nor ANTHROPIC_API_KEY is set - running rules-only. ' +
+      'Unrecognised phrasings will ask the user to rephrase.',
+  );
+  return new NullIntentProvider();
 }
 
 /**
- * Map an SDK failure onto a decision: retryable or not.
- * Most-specific-first, so a 404 is never mistaken for a rate limit.
+ * Map a provider failure onto a decision: retryable or not.
+ * Most-specific-first for each SDK's own error hierarchy, so a 404 is never
+ * mistaken for a rate limit; a final generic branch covers whichever provider
+ * is not the one actually in use.
  */
 export function describeProviderError(error: unknown): { message: string; retryable: boolean } {
   if (error instanceof Anthropic.NotFoundError) {
@@ -252,10 +400,25 @@ export function describeProviderError(error: unknown): { message: string; retrya
   if (error instanceof Anthropic.APIConnectionError) {
     return { message: 'network error reaching Anthropic', retryable: true };
   }
-  // Base class last: it is the parent of every case above.
+  // Base class last: it is the parent of every Anthropic case above.
   if (error instanceof Anthropic.APIError) {
     const status = error.status ?? 0;
     return { message: `API error ${status || 'unknown'}`, retryable: status >= 500 };
   }
+
+  if (error instanceof GeminiApiError) {
+    const status = error.status ?? 0;
+    if (status === 401 || status === 403) {
+      return { message: 'invalid Gemini API key', retryable: false };
+    }
+    if (status === 404) {
+      return { message: `model not found: ${config.geminiModel}`, retryable: false };
+    }
+    if (status === 429) {
+      return { message: 'rate limited', retryable: true };
+    }
+    return { message: `API error ${status || 'unknown'}`, retryable: status >= 500 };
+  }
+
   return { message: error instanceof Error ? error.message : 'unknown error', retryable: false };
 }
