@@ -1,0 +1,884 @@
+/*
+ * Voice List - visual system
+ *
+ * The design language is borrowed from the two artefacts this app replaces: the
+ * shelf-edge label and the till receipt. Categories are set as shelf rules,
+ * quantities sit in a left gutter as tabular numerals the way a price sits on a
+ * label, and machine facts (parse source, latency, prices) are set in mono.
+ *
+ * Palette is drawn from produce rather than from a UI kit: beetroot, olive
+ * brine, egg yolk, on cool butcher paper.
+ */
+
+:root {
+  --ground: #edefea;
+  --surface: #f7f8f5;
+  --surface-sunk: #e4e7e0;
+  --ink: #14201c;
+  --ink-muted: #5c6a65;
+  --ink-faint: #8b9791;
+  --line: #d2d8d0;
+  --line-strong: #b9c1b8;
+
+  --beet: #8a2149;
+  --beet-soft: #f0dbe3;
+  --olive: #5b6a31;
+  --olive-soft: #e3e8d5;
+  --yolk: #c8801f;
+  --yolk-soft: #f7e7cd;
+
+  --display: 'Bricolage Grotesque', 'Trebuchet MS', sans-serif;
+  --body: 'Instrument Sans', system-ui, -apple-system, sans-serif;
+  --mono: 'DM Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+
+  --radius: 4px;
+  --radius-lg: 10px;
+  --dock-height: 132px;
+
+  --shadow-card: 0 1px 0 var(--line), 0 8px 24px -18px rgba(20, 32, 28, 0.5);
+  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ground: #131d1a;
+    --surface: #1a2723;
+    --surface-sunk: #0f1815;
+    --ink: #e9ede8;
+    --ink-muted: #9aa8a2;
+    --ink-faint: #6c7a74;
+    --line: #2a3833;
+    --line-strong: #3a4a44;
+
+    --beet: #ef7ba4;
+    --beet-soft: #3a1826;
+    --olive: #b3c47a;
+    --olive-soft: #232c17;
+    --yolk: #e8b45f;
+    --yolk-soft: #33260f;
+
+    --shadow-card: 0 1px 0 var(--line), 0 8px 24px -18px rgba(0, 0, 0, 0.8);
+  }
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--ground);
+  color: var(--ink);
+  font-family: var(--body);
+  font-size: 16px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  border: none;
+  background: none;
+  cursor: pointer;
+}
+
+:focus-visible {
+  outline: 2px solid var(--beet);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* ---------------------------------------------------------------- shell -- */
+
+.app {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+  max-width: 1060px;
+  margin: 0 auto;
+  padding-bottom: calc(var(--dock-height) + env(safe-area-inset-bottom, 0px));
+}
+
+.masthead {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 18px;
+  background: color-mix(in srgb, var(--ground) 88%, transparent);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--line);
+}
+
+.wordmark {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-right: auto;
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: 19px;
+  letter-spacing: -0.02em;
+}
+
+/* The bars echo the waveform: the app's one idea, stated in the logo. */
+.wordmark-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 15px;
+}
+
+.wordmark-bars i {
+  display: block;
+  width: 3px;
+  background: var(--beet);
+  border-radius: 1px;
+}
+
+.wordmark-bars i:nth-child(1) { height: 40%; }
+.wordmark-bars i:nth-child(2) { height: 100%; }
+.wordmark-bars i:nth-child(3) { height: 65%; }
+
+.masthead-tag {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+.control {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 11px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  background: var(--surface);
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--ink-muted);
+  transition: border-color 0.15s var(--ease), color 0.15s var(--ease);
+}
+
+.control:hover {
+  border-color: var(--ink-muted);
+  color: var(--ink);
+}
+
+.control[aria-pressed='true'] {
+  border-color: var(--beet);
+  background: var(--beet-soft);
+  color: var(--beet);
+}
+
+select.control {
+  appearance: none;
+  padding-right: 26px;
+  background-image: linear-gradient(45deg, transparent 50%, currentColor 50%),
+    linear-gradient(135deg, currentColor 50%, transparent 50%);
+  background-position: calc(100% - 14px) 15px, calc(100% - 9px) 15px;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+}
+
+.main {
+  flex: 1;
+  padding: 18px;
+  display: grid;
+  gap: 22px;
+}
+
+@media (min-width: 880px) {
+  .main {
+    grid-template-columns: 1.35fr 1fr;
+    align-items: start;
+    gap: 22px 34px;
+  }
+  .col-span {
+    grid-column: 1 / -1;
+  }
+}
+
+/* ------------------------------------------------------------ banners --- */
+
+.banner {
+  display: flex;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--line-strong);
+  border-left: 3px solid var(--yolk);
+  border-radius: var(--radius);
+  background: var(--yolk-soft);
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.banner strong {
+  font-weight: 600;
+}
+
+.banner-body {
+  color: var(--ink);
+}
+
+.banner-body p {
+  margin: 3px 0 0;
+  color: var(--ink-muted);
+}
+
+/* ---------------------------------------------------------- transcript -- */
+
+.transcript {
+  position: relative;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-card);
+  overflow: hidden;
+}
+
+.transcript-body {
+  padding: 16px 16px 12px;
+  min-height: 84px;
+  display: flex;
+  align-items: center;
+}
+
+.transcript-text {
+  margin: 0;
+  font-family: var(--display);
+  font-size: clamp(20px, 5vw, 27px);
+  font-weight: 500;
+  line-height: 1.22;
+  letter-spacing: -0.018em;
+  overflow-wrap: anywhere;
+}
+
+.transcript-text .interim {
+  color: var(--ink-faint);
+}
+
+.transcript-idle {
+  color: var(--ink-faint);
+  font-weight: 500;
+}
+
+.transcript-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 9px 16px;
+  border-top: 1px solid var(--line);
+  background: var(--surface-sunk);
+  min-height: 40px;
+}
+
+/* The parse badge: which engine answered, and how long it took. */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  border-radius: 3px;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+.badge-rules {
+  background: var(--olive-soft);
+  color: var(--olive);
+}
+
+.badge-llm {
+  background: var(--beet-soft);
+  color: var(--beet);
+}
+
+.badge-cache {
+  background: var(--yolk-soft);
+  color: var(--yolk);
+}
+
+.badge-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.transcript-speak {
+  font-size: 13px;
+  color: var(--ink-muted);
+  margin-left: auto;
+}
+
+/* ------------------------------------------------------------ waveform -- */
+
+.waveform {
+  display: block;
+  width: 100%;
+  height: 34px;
+}
+
+/* ---------------------------------------------------------------- list -- */
+
+.section-title {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin: 0 0 10px;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+.section-title::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--line);
+}
+
+/* Shelf rule: the aisle name and how many items sit under it. */
+.aisle {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin: 20px 0 6px;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--ink-muted);
+}
+
+.aisle:first-child {
+  margin-top: 0;
+}
+
+.aisle-rule {
+  flex: 1;
+  height: 1px;
+  background: var(--line-strong);
+}
+
+.aisle-count {
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-faint);
+}
+
+.rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.row {
+  display: grid;
+  grid-template-columns: 58px 1fr auto;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 4px;
+  border-bottom: 1px solid var(--line);
+}
+
+/* Quantity in the gutter, like a price on a shelf label - scannable in an aisle. */
+.row-qty {
+  font-family: var(--mono);
+  font-size: 19px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  color: var(--ink);
+}
+
+.row-qty small {
+  display: block;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+.row-name {
+  font-family: var(--display);
+  font-size: 17px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  text-align: left;
+  width: 100%;
+}
+
+.row-name span {
+  display: block;
+  font-family: var(--body);
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--ink-faint);
+}
+
+.row-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.icon-button {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius);
+  color: var(--ink-faint);
+  transition: background 0.15s var(--ease), color 0.15s var(--ease);
+}
+
+.icon-button:hover {
+  background: var(--surface-sunk);
+  color: var(--ink);
+}
+
+.icon-button.danger:hover {
+  background: var(--beet-soft);
+  color: var(--beet);
+}
+
+.row.is-done .row-name,
+.row.is-done .row-qty {
+  color: var(--ink-faint);
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+}
+
+/* A new row announces itself once, then settles. */
+@keyframes row-land {
+  from {
+    background: var(--beet-soft);
+    transform: translateX(-6px);
+    opacity: 0;
+  }
+  to {
+    background: transparent;
+    transform: none;
+    opacity: 1;
+  }
+}
+
+.row.is-new {
+  animation: row-land 0.5s var(--ease);
+}
+
+.empty {
+  padding: 26px 4px;
+  border-top: 1px solid var(--line);
+  color: var(--ink-muted);
+  font-size: 14px;
+}
+
+.empty strong {
+  display: block;
+  margin-bottom: 4px;
+  font-family: var(--display);
+  font-size: 17px;
+  font-weight: 500;
+  color: var(--ink);
+}
+
+.empty code {
+  font-family: var(--mono);
+  font-size: 12px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: var(--surface-sunk);
+}
+
+/* --------------------------------------------------------- suggestions -- */
+
+.cards {
+  display: grid;
+  gap: 8px;
+}
+
+.card {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 13px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--kind-color, var(--line-strong));
+  border-radius: var(--radius);
+  background: var(--surface);
+  text-align: left;
+  width: 100%;
+  transition: border-color 0.15s var(--ease), transform 0.15s var(--ease);
+}
+
+.card:hover {
+  transform: translateX(2px);
+  border-color: var(--line-strong);
+  border-left-color: var(--kind-color, var(--line-strong));
+}
+
+.card-kind {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  color: var(--kind-color, var(--ink-faint));
+}
+
+.card-name {
+  font-family: var(--display);
+  font-size: 16px;
+  font-weight: 500;
+  margin: 2px 0 3px;
+}
+
+/* The justification is the point of the feature, so it is never truncated. */
+.card-reason {
+  font-size: 13px;
+  line-height: 1.35;
+  color: var(--ink-muted);
+}
+
+.card-add {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--line-strong);
+  border-radius: 50%;
+  color: var(--ink-muted);
+  font-size: 17px;
+}
+
+.card:hover .card-add {
+  border-color: var(--kind-color, var(--ink));
+  color: var(--kind-color, var(--ink));
+}
+
+.kind-replenishment { --kind-color: var(--beet); }
+.kind-seasonal { --kind-color: var(--olive); }
+.kind-deal { --kind-color: var(--yolk); }
+.kind-co-purchase { --kind-color: var(--ink-muted); }
+.kind-substitute { --kind-color: var(--ink-muted); }
+
+/* --------------------------------------------------------------- chips -- */
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: var(--surface);
+  font-size: 13px;
+  transition: border-color 0.15s var(--ease), background 0.15s var(--ease);
+}
+
+.chip:hover {
+  border-color: var(--beet);
+  background: var(--beet-soft);
+  color: var(--beet);
+}
+
+.chip-price {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-faint);
+}
+
+.chip:hover .chip-price {
+  color: inherit;
+}
+
+/* ------------------------------------------------------------- results -- */
+
+.results {
+  display: grid;
+  gap: 6px;
+}
+
+.result {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  text-align: left;
+  width: 100%;
+}
+
+.result:hover {
+  border-color: var(--beet);
+}
+
+.result-name {
+  font-family: var(--display);
+  font-size: 15px;
+  font-weight: 500;
+}
+
+.result-name span {
+  display: block;
+  font-family: var(--body);
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--ink-faint);
+}
+
+.result-price {
+  font-family: var(--mono);
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------------------------------------------------------------- dock -- */
+
+.dock {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 9px;
+  padding: 14px 18px calc(16px + env(safe-area-inset-bottom, 0px));
+  background: linear-gradient(to top, var(--ground) 62%, transparent);
+}
+
+.dock-hint {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  color: var(--ink-faint);
+  text-align: center;
+  min-height: 16px;
+}
+
+.mic {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 68px;
+  height: 68px;
+  border-radius: 50%;
+  border: 1px solid var(--line-strong);
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: 0 6px 20px -10px rgba(20, 32, 28, 0.55);
+  transition: transform 0.18s var(--ease), background 0.18s var(--ease),
+    color 0.18s var(--ease), border-color 0.18s var(--ease);
+}
+
+.mic:hover {
+  transform: translateY(-1px);
+}
+
+.mic:active {
+  transform: scale(0.96);
+}
+
+.mic.is-listening {
+  background: var(--beet);
+  border-color: var(--beet);
+  color: var(--surface);
+}
+
+/* One ring, driven by real microphone amplitude rather than a fixed loop. */
+.mic-ring {
+  position: absolute;
+  inset: -6px;
+  border-radius: 50%;
+  border: 2px solid var(--beet);
+  opacity: var(--ring-opacity, 0);
+  transform: scale(var(--ring-scale, 1));
+  pointer-events: none;
+  transition: opacity 0.12s linear;
+}
+
+.mic:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.dock-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.text-fallback {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+  max-width: 520px;
+}
+
+.text-fallback input {
+  flex: 1;
+  height: 42px;
+  padding: 0 13px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-size: 15px;
+}
+
+.text-fallback input::placeholder {
+  color: var(--ink-faint);
+}
+
+.text-fallback button {
+  padding: 0 15px;
+  border-radius: var(--radius);
+  background: var(--ink);
+  color: var(--ground);
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.text-fallback button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* --------------------------------------------------------------- toast -- */
+
+.toasts {
+  position: fixed;
+  left: 50%;
+  bottom: calc(var(--dock-height) + 12px + env(safe-area-inset-bottom, 0px));
+  transform: translateX(-50%);
+  z-index: 40;
+  display: grid;
+  gap: 6px;
+  width: min(440px, calc(100vw - 32px));
+}
+
+.toast {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 10px 13px;
+  border-radius: var(--radius);
+  background: var(--ink);
+  color: var(--ground);
+  font-size: 14px;
+  box-shadow: 0 10px 30px -14px rgba(20, 32, 28, 0.8);
+  animation: toast-in 0.22s var(--ease);
+}
+
+.toast.is-error {
+  background: var(--beet);
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+
+.spinner {
+  width: 13px;
+  height: 13px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* --------------------------------------------------------------- misc --- */
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  align-items: center;
+}
+
+.link-button {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.link-button:hover {
+  color: var(--beet);
+}
+
+.footnote {
+  padding: 4px 4px 0;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  line-height: 1.6;
+  letter-spacing: 0.02em;
+  color: var(--ink-faint);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+  .card:hover {
+    transform: none;
+  }
+}

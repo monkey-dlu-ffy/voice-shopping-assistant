@@ -1,0 +1,39 @@
+# Local development stack: the application image plus a MongoDB instance.
+#
+# `docker compose up` is the whole setup - no Node version to match, no database
+# to install, no API key required. The app starts in rules-only mode and says so
+# at /api/health; add ANTHROPIC_API_KEY to a .env file to enable the LLM
+# fallback for unusual phrasings.
+
+services:
+  app:
+    build: .
+    ports:
+      - '8080:8080'
+    environment:
+      PORT: 8080
+      NODE_ENV: production
+      MONGODB_URI: mongodb://mongo:27017/vsa
+      # Optional. Without it the rule parser handles everything it recognises.
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-haiku-4-5}
+    depends_on:
+      mongo:
+        condition: service_healthy
+    restart: unless-stopped
+
+  mongo:
+    image: mongo:7
+    volumes:
+      - mongo-data:/data/db
+    healthcheck:
+      # The app waits for this so the first request never races the database.
+      test: ['CMD', 'mongosh', '--quiet', '--eval', "db.adminCommand('ping')"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    restart: unless-stopped
+
+volumes:
+  mongo-data:

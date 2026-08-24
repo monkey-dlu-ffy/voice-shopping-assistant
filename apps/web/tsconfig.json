@@ -1,0 +1,16 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "composite": true,
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "jsx": "react-jsx",
+    "noEmit": false,
+    "emitDeclarationOnly": true,
+    "types": ["vite/client"],
+    "paths": { "@vsa/shared": ["../../packages/shared/src/index.ts"] }
+  },
+  "include": ["src/**/*"],
+  "references": [{ "path": "../../packages/shared" }]
+}

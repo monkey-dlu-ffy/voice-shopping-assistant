@@ -1,0 +1,28 @@
+{
+  "name": "voice-shopping-assistant",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Voice-driven shopping list manager with hybrid NLP and explainable suggestions",
+  "workspaces": [
+    "packages/shared",
+    "apps/api",
+    "apps/web"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "npm run build -w @vsa/shared && npm run build -w @vsa/api && npm run build -w @vsa/web",
+    "dev": "concurrently -n api,web -c blue,magenta \"npm run dev -w @vsa/api\" \"npm run dev -w @vsa/web\"",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc -b packages/shared apps/api apps/web",
+    "start": "node apps/api/dist/index.js"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "concurrently": "^9.1.2",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}
