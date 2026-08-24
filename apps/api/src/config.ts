@@ -26,7 +26,11 @@ export const config = {
    * billing configured. See createIntentProvider() in nlp/provider.ts.
    */
   geminiApiKey: optional('GEMINI_API_KEY'),
-  geminiModel: optional('GEMINI_MODEL') ?? 'gemini-2.5-flash',
+  // gemini-2.5-flash and gemini-2.5-pro 404 on some free-tier API keys/projects
+  // (present in ListModels, but not actually enabled for generateContent).
+  // flash-lite is confirmed working across free-tier keys and is plenty for
+  // structured intent parsing.
+  geminiModel: optional('GEMINI_MODEL') ?? 'gemini-2.5-flash-lite',
 
   anthropicApiKey: optional('ANTHROPIC_API_KEY'),
   anthropicModel: optional('ANTHROPIC_MODEL') ?? 'claude-haiku-4-5',

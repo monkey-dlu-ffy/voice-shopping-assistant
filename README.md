@@ -144,7 +144,7 @@ Neither is required. Without one, the rule parser still handles every phrasing i
 ```json
 {
   "storage": { "kind": "mongodb", "durable": true },
-  "nlp": { "fallback": "gemini:gemini-2.5-flash", "cache": { "hits": 3, "llmCalls": 1 } }
+  "nlp": { "fallback": "gemini:gemini-2.5-flash-lite", "cache": { "hits": 3, "llmCalls": 1 } }
 }
 ```
 
