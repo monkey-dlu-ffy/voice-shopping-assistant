@@ -6,7 +6,7 @@
  *
  * Two completely independent parsers emit this exact shape:
  *   - `RuleParser`  - deterministic, offline, sub-millisecond, free
- *   - `LlmProvider` - Claude Haiku 4.5, used only when the rules are not confident
+ *   - `LlmProvider` - Gemini Flash, used only when the rules are not confident
  *
  * Because both sides of the fallback speak the same language, either can be
  * tested, swapped or removed without touching the executor.

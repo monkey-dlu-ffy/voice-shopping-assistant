@@ -115,7 +115,7 @@ The rule parser scores its own confidence. Below `CONFIDENCE_THRESHOLD` it refus
 
 `remove` is confident even for an item the catalogue has never heard of, because the executor validates against the user's own list. `add` is not, because an unrecognised name would go straight onto the list. Confidence answers *"did I understand the command"*, not *"do I stock this product"*.
 
-When the model is consulted, the request is constrained to a JSON schema (Gemini's `responseSchema`, or Anthropic's strict tool use if you configure Claude instead — see [LLM provider](#llm-provider) below), so the output is schema-guaranteed rather than hope-parsed, and it is validated again with Zod on arrival.
+When the model is consulted, the request is constrained by Gemini's `responseSchema` (see [LLM provider](#llm-provider) below), so the output is schema-guaranteed rather than hope-parsed, and it is validated again with Zod on arrival.
 
 ### The suggestion engine
 
@@ -144,14 +144,11 @@ Then open <http://localhost:8080>. That is the whole setup — no Node version t
 
 ### LLM provider
 
-The LLM fallback needs a key from **one** of two providers, tried in this order. Add whichever you have to a `.env` file next to `docker-compose.yml` (see `.env.example` for the full list of variables).
+The LLM fallback needs a Gemini key. Add it to a `.env` file next to `docker-compose.yml` (see `.env.example`).
 
-| Provider | Cost | Getting a key |
-|---|---|---|
-| **Gemini Flash** (preferred) | Genuinely free — no billing account required | Sign in at [aistudio.google.com](https://aistudio.google.com) with a Google account and generate a key. This is a *different* signup path from Google Cloud/Vertex, and does not ask for a card on the free tier. Set `GEMINI_API_KEY`. |
-| Claude Haiku 4.5 | Fractions of a cent per fallback call, requires Anthropic billing | Set `ANTHROPIC_API_KEY` instead. Useful if you already have Claude billing configured — the two providers sit behind the same `IntentProvider` interface, so it's a config change, not a code change. |
+Sign in at [aistudio.google.com](https://aistudio.google.com) with a Google account and generate a key — genuinely free, no billing account required. This is a *different* signup path from Google Cloud/Vertex, and does not ask for a card on the free tier. Set `GEMINI_API_KEY`.
 
-Neither is required. Without one, the rule parser still handles every phrasing it recognises, and an unusual phrasing gets an honest "I didn't catch that" instead of an error. `/api/health` reports exactly which mode you're running in:
+The key is not required. Without one, the rule parser still handles every phrasing it recognises, and an unusual phrasing gets an honest "I didn't catch that" instead of an error. `/api/health` reports exactly which mode you're running in:
 
 ```json
 {
@@ -168,7 +165,7 @@ npm run dev          # API on :8080, Vite on :5173 with a proxy
 ```
 
 ```bash
-npm test             # 191 tests
+npm test             # 186 tests
 npm run typecheck
 npm run build
 ```
@@ -223,14 +220,14 @@ Either way, Cloud Run and Render instances are both stateless, so production nee
 ## Testing
 
 ```
-191 tests across 5 files
+186 tests across 5 files
 ```
 
 - **`packages/shared/test/nlp.spec.ts`** — 83 utterances across three languages, each asserting the exact `Intent`. This is the evidence behind "understands varied phrasing"; the rest of the claim is just a claim. It includes an *escalation corpus*: phrasings the rules must **refuse**, so the fallback boundary cannot silently drift.
 - **`packages/shared/test/catalog.spec.ts`** — resolution, mishearings, cross-language lookup, plus data integrity (no dangling substitutes, no duplicate keys, valid months).
 - **`apps/api/test/suggestions.spec.ts`** — the replenishment model recovers the interval it was generated from; cold start still produces something.
 - **`apps/api/test/api.spec.ts`** — full request/response cycle against a memory repository and a mock provider. No database, no network, no API key.
-- **`apps/api/test/provider.spec.ts`** — error classification for both LLM providers (retryable vs. permanent, by real SDK error class), so a rate limit is never mistaken for a dead API key.
+- **`apps/api/test/provider.spec.ts`** — error classification (retryable vs. permanent, by real SDK error class), so a rate limit is never mistaken for a dead API key.
 
 Two real bugs were caught here rather than in a demo: a low-confidence parse being executed anyway (adding a literal item called "whatever tacos"), and `remove caviar` being rejected as incomprehensible when it was perfectly understood.
 
@@ -269,7 +266,7 @@ Voice input needs the Web Speech API and an HTTPS origin (or `localhost`).
 
 **Rules first, model second.** An LLM on every utterance would cost money per command, add ~400 ms of latency to "add milk", and break entirely offline. Rules-only would be brittle on phrasing the author did not anticipate. The hybrid gets the latency and cost profile of the former with the flexibility of the latter, and the cache means an unusual phrasing is only ever paid for once.
 
-**One `Intent` contract.** The executor has no idea whether an intent came from the rule engine, Gemini or Claude. That is what makes the fallback swappable — Gemini and Claude are two interchangeable implementations of the same `IntentProvider` interface — and the whole pipeline testable without a network.
+**One `Intent` contract.** The executor has no idea whether an intent came from the rule engine or from Gemini. That is what makes the fallback swappable — the LLM sits behind one `IntentProvider` interface, so a different provider is a config change, not a code change — and the whole pipeline testable without a network.
 
 **English canonical keys.** Whatever language you speak, items are stored against normalised English names. Categorisation, pricing, purchase history and recommendations then work identically across languages instead of needing per-language duplicates, and the UI renders labels back in your language.
 
@@ -289,4 +286,4 @@ Honest limits, given the time budget:
 - **Undo restores the list, not purchase history.** Marking something bought is treated as an append-only record of what actually happened.
 - **Sessions are an anonymous cookie.** No accounts, deliberately — a reviewer should not have to sign up. Cross-device sync would need real auth.
 - **Co-purchase associations are seeded pairs**, not mined from observed baskets. The engine accepts observed data; there just is not any yet.
-- **Smaller free-tier models follow the escalation prompt less reliably than Claude did in development.** On `gemini-2.5-flash-lite`, a vague meal request ("sort out dinner for tonight") occasionally comes back as an empty search instead of expanded grocery items, despite an explicit rule and worked example in the prompt. The `payloadSchema` Zod validation catches a malformed response; it cannot catch a well-formed but wrong one. This is a genuine model-capability gap, not a parsing bug — swapping in `gemini-2.5-pro` (if your key has access to it) or Claude Haiku would very likely fix it, since the `IntentProvider` interface makes that a config change.
+- **`gemini-2.5-flash-lite` follows the escalation prompt less reliably than a larger model would.** A vague meal request ("sort out dinner for tonight") occasionally comes back as an empty search instead of expanded grocery items, despite an explicit rule and worked example in the prompt. The `payloadSchema` Zod validation catches a malformed response; it cannot catch a well-formed but wrong one. This is a genuine model-capability gap, not a parsing bug — swapping in `gemini-2.5-pro` (if your key has access to it) would very likely fix it, since the `IntentProvider` interface makes that a config change, not a code change.

@@ -19,11 +19,10 @@ export const config = {
   mongoUri: optional('MONGODB_URI'),
 
   /**
-   * Two interchangeable LLM fallbacks, both behind the same IntentProvider
-   * interface. Gemini is preferred when both keys are set - it is the
-   * genuinely free option (Google AI Studio, no billing account required),
-   * while the Anthropic key stays supported for anyone who does have Claude
-   * billing configured. See createIntentProvider() in nlp/provider.ts.
+   * The LLM fallback, behind the IntentProvider interface in nlp/provider.ts.
+   * Gemini via Google AI Studio - no billing account required to get a key,
+   * which is what makes it the honest default for a project meant to run on a
+   * free tier.
    */
   geminiApiKey: optional('GEMINI_API_KEY'),
   // gemini-2.5-flash and gemini-2.5-pro 404 on some free-tier API keys/projects
@@ -31,9 +30,6 @@ export const config = {
   // flash-lite is confirmed working across free-tier keys and is plenty for
   // structured intent parsing.
   geminiModel: optional('GEMINI_MODEL') ?? 'gemini-2.5-flash-lite',
-
-  anthropicApiKey: optional('ANTHROPIC_API_KEY'),
-  anthropicModel: optional('ANTHROPIC_MODEL') ?? 'claude-haiku-4-5',
 
   /** Directory of built frontend assets, served by the same process in production. */
   webRoot: optional('WEB_ROOT') ?? '../../web/dist',

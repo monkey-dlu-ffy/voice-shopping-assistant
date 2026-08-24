@@ -14,12 +14,9 @@ services:
       PORT: 8080
       NODE_ENV: production
       MONGODB_URI: mongodb://mongo:27017/vsa
-      # Both optional. Without either, the rule parser handles everything it
-      # recognises. If both are set, Gemini is used - see .env.example.
+      # Optional. Without it, the rule parser handles everything it recognises.
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.5-flash-lite}
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
-      ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-haiku-4-5}
     depends_on:
       mongo:
         condition: service_healthy
