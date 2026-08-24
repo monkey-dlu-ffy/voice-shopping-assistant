@@ -2,7 +2,7 @@
 
 A voice-driven shopping list that understands how people actually talk — in English, Hindi and Spanish — and explains every suggestion it makes.
 
-**Live app:** _add your deployed URL here_
+**Live app:** <https://voice-shopping-assistant-fvmh.onrender.com>
 **Stack:** TypeScript · React · Express · MongoDB · Gemini Flash · Docker
 
 ---
