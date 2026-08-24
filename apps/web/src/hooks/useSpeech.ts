@@ -146,7 +146,13 @@ export function useSpeech({ language, onFinal, continuous }: UseSpeechOptions): 
     const recognition = new Constructor();
     recognition.lang = languageRef.current;
     recognition.interimResults = true;
-    recognition.continuous = continuousRef.current;
+    // Always continuous at the browser level, regardless of hands-free mode.
+    // With continuous=false, Chrome ends the session at the first short pause
+    // it detects - often mid-sentence, well before the user finishes a
+    // multi-word command like "add two bottles of water and milk". Running
+    // continuous tolerates natural pauses within one utterance; single-shot
+    // vs. hands-free is instead decided below, by when *we* choose to stop.
+    recognition.continuous = true;
     recognition.maxAlternatives = 1;
 
     recognition.onstart = () => {
@@ -162,6 +168,14 @@ export function useSpeech({ language, onFinal, continuous }: UseSpeechOptions): 
         if (result.isFinal) {
           const finalText = text.trim();
           if (finalText) onFinalRef.current(finalText);
+          // Single-shot (non-hands-free) mode: stop right after the first
+          // complete phrase rather than waiting on the browser's own
+          // end-of-session detection, so the mic reliably goes idle exactly
+          // once the user's command has been captured.
+          if (!continuousRef.current) {
+            wantsToListenRef.current = false;
+            recognition.stop();
+          }
         } else {
           pending += text;
         }
